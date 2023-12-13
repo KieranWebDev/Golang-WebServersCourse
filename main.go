@@ -1,14 +1,42 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 )
 
+type apiConfig struct {
+	fileserverHits int
+}
+
+func (cfg *apiConfig) handlerMetrics(w http.ResponseWriter, r *http.Request) {
+	w.Header().Add("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(fmt.Sprintf("Hits: %d", cfg.fileserverHits)))
+}
+
+func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cfg.fileserverHits++
+		next.ServeHTTP(w, r)
+	})
+}
+
 func main() {
+	const filepathRoot = "."
 	const port = "8080"
 
+	apiCfg := apiConfig{
+		fileserverHits: 0,
+	}
+
 	mux := http.NewServeMux()
+	mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", http.FileServer(http.Dir(filepathRoot)))))
+	mux.HandleFunc("/healthz", handlerReadiness)
+	mux.HandleFunc("/metrics", apiCfg.handlerMetrics)
+	mux.HandleFunc("/reset", apiCfg.handlerReset)
+
 	corsMux := middlewareCors(mux)
 
 	srv := &http.Server{
@@ -16,32 +44,6 @@ func main() {
 		Handler: corsMux,
 	}
 
-	// 1. Add the readiness endpoint
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		// Write the Content-Type header
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		// Write the status code
-		w.WriteHeader(http.StatusOK)
-		// Write the body text
-		w.Write([]byte("OK"))
-	})
-	mux.Handle("/app/", http.StripPrefix("/app", http.FileServer(http.Dir("."))))
-	mux.Handle("/", http.FileServer(http.Dir(".")))
-	mux.Handle("/assets", http.FileServer(http.Dir("logo.png")))
-
-	log.Printf("Serving on port: %s\n", port)
+	log.Printf("Serving files from %s on port: %s\n", filepathRoot, port)
 	log.Fatal(srv.ListenAndServe())
-}
-
-func middlewareCors(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE")
-		w.Header().Set("Access-Control-Allow-Headers", "*")
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }
