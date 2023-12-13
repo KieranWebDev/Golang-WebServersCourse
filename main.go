@@ -16,6 +16,16 @@ func main() {
 		Handler: corsMux,
 	}
 
+	// 1. Add the readiness endpoint
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		// Write the Content-Type header
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		// Write the status code
+		w.WriteHeader(http.StatusOK)
+		// Write the body text
+		w.Write([]byte("OK"))
+	})
+	mux.Handle("/app/", http.StripPrefix("/app", http.FileServer(http.Dir("."))))
 	mux.Handle("/", http.FileServer(http.Dir(".")))
 	mux.Handle("/assets", http.FileServer(http.Dir("logo.png")))
 
